@@ -1,0 +1,29 @@
+{
+  "tests": [
+    {
+      "name": "Test get users list",
+      "method": "GET",
+      "path": "/?adminId=1&action=users",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "users": "array"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Test ban user",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "adminId": 1,
+        "userId": 2,
+        "action": "ban_user"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "success": true
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

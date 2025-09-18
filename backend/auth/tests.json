@@ -1,0 +1,42 @@
+{
+  "tests": [
+    {
+      "name": "Test login endpoint",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "login",
+        "username": "Himo",
+        "password": "admin"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "success": true,
+        "user": {
+          "username": "string",
+          "himId": "string"
+        }
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Test register endpoint", 
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "register",
+        "username": "testuser123",
+        "password": "testpass123"
+      },
+      "expectedStatus": 201,
+      "expectedBody": {
+        "success": true,
+        "user": {
+          "username": "string",
+          "himId": "string"
+        }
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
