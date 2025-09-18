@@ -7,17 +7,23 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import Icon from '@/components/ui/icon';
 
 interface User {
   id: string;
   username: string;
+  password: string;
   himId: string;
   himCoins: number;
   isPremium: boolean;
   isVerified: boolean;
+  isAdmin: boolean;
+  isBanned: boolean;
   avatar?: string;
   dailyCoinsCollected: boolean;
+  lastLogin?: string;
 }
 
 interface Chat {
@@ -27,6 +33,15 @@ interface Chat {
   timestamp: string;
   avatar?: string;
   unread: number;
+}
+
+interface Message {
+  id: string;
+  userId: string;
+  username: string;
+  text: string;
+  timestamp: string;
+  chatId: string;
 }
 
 interface Friend {
@@ -45,58 +60,120 @@ interface Report {
   timestamp: string;
 }
 
+// Database simulation using localStorage
+const DB_KEY = 'himoMessengerDB';
+
+interface Database {
+  users: User[];
+  messages: Message[];
+  reports: Report[];
+}
+
+const loadDatabase = (): Database => {
+  const saved = localStorage.getItem(DB_KEY);
+  if (saved) {
+    return JSON.parse(saved);
+  }
+  
+  const defaultDB: Database = {
+    users: [
+      {
+        id: 'admin',
+        username: 'Himo',
+        password: 'admin',
+        himId: 'HIM000',
+        himCoins: 999999,
+        isPremium: true,
+        isVerified: true,
+        isAdmin: true,
+        isBanned: false,
+        dailyCoinsCollected: false,
+        lastLogin: new Date().toISOString()
+      }
+    ],
+    messages: [
+      { id: '1', userId: 'admin', username: 'Himo', text: 'Добро пожаловать в Himo Messenger!', timestamp: '14:30', chatId: '1' },
+      { id: '2', userId: 'user1', username: 'TestUser', text: 'Привет всем!', timestamp: '14:31', chatId: '1' },
+    ],
+    reports: [
+      { id: '1', reportedUser: 'SpamBot', reportedBy: 'User123', reason: 'Спам в чате', timestamp: '15:20' },
+      { id: '2', reportedUser: 'ToxicUser', reportedBy: 'CleanUser', reason: 'Оскорбления', timestamp: '14:10' },
+    ]
+  };
+  
+  saveDatabase(defaultDB);
+  return defaultDB;
+};
+
+const saveDatabase = (db: Database) => {
+  localStorage.setItem(DB_KEY, JSON.stringify(db));
+};
+
 const Index = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentScreen, setCurrentScreen] = useState<'auth' | 'register' | 'chats' | 'friends' | 'profile' | 'admin' | 'premium'>('auth');
-  const [users, setUsers] = useState<User[]>([]);
-  const [chats] = useState<Chat[]>([
+  const [database, setDatabase] = useState<Database>(loadDatabase());
+  const [selectedUserForAdmin, setSelectedUserForAdmin] = useState<User | null>(null);
+  const [adminAction, setAdminAction] = useState<'coins' | 'admin' | 'messages' | null>(null);
+  const [coinsAmount, setCoinsAmount] = useState('');
+  
+  const chats = [
     { id: '1', name: 'Общий чат', lastMessage: 'Привет всем!', timestamp: '14:30', unread: 2 },
     { id: '2', name: 'Разработка', lastMessage: 'Обновление готово', timestamp: '13:45', unread: 0 },
     { id: '3', name: 'Мемы', lastMessage: '😂😂😂', timestamp: '12:20', unread: 5 },
-  ]);
-  const [friends] = useState<Friend[]>([
+  ];
+  
+  const friends = [
     { id: '1', username: 'AlexDev', himId: 'HIM001', isOnline: true },
     { id: '2', username: 'MariaDesign', himId: 'HIM002', isOnline: false },
     { id: '3', username: 'CodeMaster', himId: 'HIM003', isOnline: true },
-  ]);
-  const [reports] = useState<Report[]>([
-    { id: '1', reportedUser: 'SpamBot', reportedBy: 'User123', reason: 'Спам в чате', timestamp: '15:20' },
-    { id: '2', reportedUser: 'ToxicUser', reportedBy: 'CleanUser', reason: 'Оскорбления', timestamp: '14:10' },
-  ]);
+  ];
 
   const [authForm, setAuthForm] = useState({ username: '', password: '' });
   const [registerForm, setRegisterForm] = useState({ username: '', password: '', confirmPassword: '' });
+  const [loginError, setLoginError] = useState('');
 
   useEffect(() => {
-    const adminUser: User = {
-      id: 'admin',
-      username: 'Himo',
-      himId: 'HIM000',
-      himCoins: 999999,
-      isPremium: true,
-      isVerified: true,
-      dailyCoinsCollected: false
-    };
-    setUsers([adminUser]);
+    const db = loadDatabase();
+    setDatabase(db);
   }, []);
 
   const generateHimId = () => {
-    return 'HIM' + Math.random().toString().substr(2, 6);
+    let newId;
+    do {
+      newId = 'HIM' + Math.random().toString().substr(2, 6);
+    } while (database.users.some(u => u.himId === newId));
+    return newId;
+  };
+
+  const updateDatabase = (newDb: Database) => {
+    setDatabase(newDb);
+    saveDatabase(newDb);
   };
 
   const handleLogin = () => {
-    if (authForm.username === 'Himo' && authForm.password === 'admin') {
-      const adminUser = users.find(u => u.username === 'Himo');
-      setCurrentUser(adminUser!);
+    setLoginError('');
+    const user = database.users.find(u => 
+      u.username === authForm.username && 
+      u.password === authForm.password
+    );
+    
+    if (user) {
+      if (user.isBanned) {
+        setLoginError('Аккаунт заблокирован');
+        return;
+      }
+      
+      const updatedUser = { ...user, lastLogin: new Date().toISOString() };
+      const updatedDB = {
+        ...database,
+        users: database.users.map(u => u.id === user.id ? updatedUser : u)
+      };
+      updateDatabase(updatedDB);
+      setCurrentUser(updatedUser);
       setCurrentScreen('chats');
     } else {
-      const user = users.find(u => u.username === authForm.username);
-      if (user) {
-        setCurrentUser(user);
-        setCurrentScreen('chats');
-      } else {
-        alert('Пользователь не найден');
-      }
+      setLoginError('Неверное имя пользователя или пароль');
     }
   };
 
@@ -106,41 +183,130 @@ const Index = () => {
       return;
     }
     
+    if (database.users.some(u => u.username === registerForm.username)) {
+      alert('Пользователь с таким именем уже существует');
+      return;
+    }
+    
     const newUser: User = {
       id: Date.now().toString(),
       username: registerForm.username,
+      password: registerForm.password,
       himId: generateHimId(),
       himCoins: 0,
       isPremium: false,
       isVerified: false,
-      dailyCoinsCollected: false
+      isAdmin: false,
+      isBanned: false,
+      dailyCoinsCollected: false,
+      lastLogin: new Date().toISOString()
     };
     
-    setUsers([...users, newUser]);
+    const updatedDB = {
+      ...database,
+      users: [...database.users, newUser]
+    };
+    updateDatabase(updatedDB);
     setCurrentUser(newUser);
     setCurrentScreen('chats');
   };
 
   const collectDailyCoins = () => {
     if (currentUser && !currentUser.dailyCoinsCollected) {
-      setCurrentUser({
+      const updatedUser = {
         ...currentUser,
         himCoins: currentUser.himCoins + 100,
         dailyCoinsCollected: true
-      });
+      };
+      const updatedDB = {
+        ...database,
+        users: database.users.map(u => u.id === currentUser.id ? updatedUser : u)
+      };
+      updateDatabase(updatedDB);
+      setCurrentUser(updatedUser);
     }
   };
 
   const buyPremium = () => {
     if (currentUser && currentUser.himCoins >= 500) {
-      setCurrentUser({
+      const updatedUser = {
         ...currentUser,
         himCoins: currentUser.himCoins - 500,
         isPremium: true
-      });
+      };
+      const updatedDB = {
+        ...database,
+        users: database.users.map(u => u.id === currentUser.id ? updatedUser : u)
+      };
+      updateDatabase(updatedDB);
+      setCurrentUser(updatedUser);
     } else {
       alert('Недостаточно HimCoins');
     }
+  };
+
+  const adminDeleteUser = (userId: string) => {
+    if (userId === 'admin') {
+      alert('Нельзя удалить главного администратора');
+      return;
+    }
+    
+    const updatedDB = {
+      ...database,
+      users: database.users.filter(u => u.id !== userId)
+    };
+    updateDatabase(updatedDB);
+    setSelectedUserForAdmin(null);
+  };
+
+  const adminToggleBan = (userId: string) => {
+    if (userId === 'admin') {
+      alert('Нельзя заблокировать главного администратора');
+      return;
+    }
+    
+    const updatedDB = {
+      ...database,
+      users: database.users.map(u => 
+        u.id === userId ? { ...u, isBanned: !u.isBanned } : u
+      )
+    };
+    updateDatabase(updatedDB);
+    setSelectedUserForAdmin(prev => 
+      prev ? { ...prev, isBanned: !prev.isBanned } : null
+    );
+  };
+
+  const adminToggleAdmin = (userId: string) => {
+    const updatedDB = {
+      ...database,
+      users: database.users.map(u => 
+        u.id === userId ? { ...u, isAdmin: !u.isAdmin } : u
+      )
+    };
+    updateDatabase(updatedDB);
+    setSelectedUserForAdmin(prev => 
+      prev ? { ...prev, isAdmin: !prev.isAdmin } : null
+    );
+  };
+
+  const adminGiveCoins = (userId: string, amount: number) => {
+    const updatedDB = {
+      ...database,
+      users: database.users.map(u => 
+        u.id === userId ? { ...u, himCoins: u.himCoins + amount } : u
+      )
+    };
+    updateDatabase(updatedDB);
+    setSelectedUserForAdmin(prev => 
+      prev ? { ...prev, himCoins: prev.himCoins + amount } : null
+    );
+    setCoinsAmount('');
+    setAdminAction(null);
+  };
+
+  const getUserMessages = (userId: string) => {
+    return database.messages.filter(m => m.userId === userId);
   };
 
   if (!currentUser) {
@@ -172,15 +338,20 @@ const Index = () => {
                   value={authForm.password}
                   onChange={(e) => setAuthForm({...authForm, password: e.target.value})}
                 />
+                {loginError && (
+                  <Alert className="border-red-500">
+                    <Icon name="AlertCircle" size={16} />
+                    <AlertDescription className="text-red-600">
+                      {loginError}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <Button 
                   onClick={handleLogin}
                   className="w-full bg-whatsapp-green hover:bg-whatsapp-darkGreen"
                 >
                   Войти
                 </Button>
-                <p className="text-sm text-gray-600 text-center">
-                  Админ: Himo / admin
-                </p>
               </TabsContent>
               
               <TabsContent value="register" className="space-y-4">
@@ -230,6 +401,7 @@ const Index = () => {
               {currentUser.username}
               {currentUser.isPremium && <span className="text-himcoin-gold">+</span>}
               {currentUser.isVerified && <Icon name="CheckCircle" size={16} className="text-blue-400" />}
+              {currentUser.isAdmin && <Icon name="Shield" size={16} className="text-red-400" />}
             </h1>
             <p className="text-xs opacity-80">ID: {currentUser.himId}</p>
           </div>
@@ -277,7 +449,7 @@ const Index = () => {
             <Icon name="User" size={18} />
             Профиль
           </Button>
-          {currentUser.username === 'Himo' && (
+          {currentUser.isAdmin && (
             <Button
               variant={currentScreen === 'admin' ? 'default' : 'ghost'}
               className={`flex-1 rounded-none ${currentScreen === 'admin' ? 'bg-whatsapp-green' : ''}`}
@@ -377,6 +549,7 @@ const Index = () => {
                       {currentUser.username}
                       {currentUser.isPremium && <span className="text-himcoin-gold text-xl">+</span>}
                       {currentUser.isVerified && <Icon name="CheckCircle" size={20} className="text-blue-500" />}
+                      {currentUser.isAdmin && <Icon name="Shield" size={20} className="text-red-500" />}
                     </h3>
                     <p className="text-gray-600">ID: {currentUser.himId}</p>
                   </div>
@@ -465,7 +638,7 @@ const Index = () => {
           </div>
         )}
 
-        {currentScreen === 'admin' && currentUser.username === 'Himo' && (
+        {currentScreen === 'admin' && currentUser.isAdmin && (
           <div className="space-y-4 animate-fade-in">
             <Card>
               <CardHeader>
@@ -474,7 +647,7 @@ const Index = () => {
                   Панель администратора
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-6">
                 <Alert>
                   <Icon name="AlertTriangle" size={16} />
                   <AlertDescription>
@@ -482,10 +655,11 @@ const Index = () => {
                   </AlertDescription>
                 </Alert>
                 
+                {/* Reports Section */}
                 <div>
-                  <h3 className="font-semibold mb-2">Жалобы ({reports.length})</h3>
+                  <h3 className="font-semibold mb-2">Жалобы ({database.reports.length})</h3>
                   <div className="space-y-2">
-                    {reports.map((report) => (
+                    {database.reports.map((report) => (
                       <Card key={report.id} className="p-3 border-red-200">
                         <div className="flex items-center justify-between">
                           <div>
@@ -507,25 +681,144 @@ const Index = () => {
                   </div>
                 </div>
                 
+                {/* Users Management */}
                 <div>
-                  <h3 className="font-semibold mb-2">Управление пользователями</h3>
+                  <h3 className="font-semibold mb-2">Управление пользователями ({database.users.length})</h3>
                   <div className="space-y-2">
-                    {users.filter(u => u.username !== 'Himo').map((user) => (
+                    {database.users.map((user) => (
                       <Card key={user.id} className="p-3">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span>{user.username}</span>
-                            {user.isVerified && <Icon name="CheckCircle" size={16} className="text-blue-500" />}
+                            <Avatar className="h-8 w-8">
+                              <AvatarFallback className="bg-whatsapp-lightGreen text-xs">
+                                {user.username.substring(0, 2)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{user.username}</span>
+                                {user.isPremium && <span className="text-himcoin-gold">+</span>}
+                                {user.isVerified && <Icon name="CheckCircle" size={16} className="text-blue-500" />}
+                                {user.isAdmin && <Icon name="Shield" size={16} className="text-red-500" />}
+                                {user.isBanned && <Badge variant="destructive">Заблокирован</Badge>}
+                              </div>
+                              <p className="text-xs text-gray-500">
+                                ID: {user.himId} | Монеты: {user.himCoins}
+                              </p>
+                            </div>
                           </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="outline">
-                              <Icon name="CheckCircle" size={14} />
-                              Верифицировать
-                            </Button>
-                            <Button size="sm" variant="destructive">
-                              <Icon name="Ban" size={14} />
-                              Бан
-                            </Button>
+                          <div className="flex gap-1">
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setSelectedUserForAdmin(user)}
+                                >
+                                  <Icon name="Settings" size={14} />
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Управление пользователем: {user.username}</DialogTitle>
+                                </DialogHeader>
+                                <div className="space-y-4">
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <Button
+                                      onClick={() => adminToggleBan(user.id)}
+                                      variant={user.isBanned ? "default" : "destructive"}
+                                      disabled={user.id === 'admin'}
+                                    >
+                                      <Icon name="Ban" size={16} />
+                                      {user.isBanned ? 'Разблокировать' : 'Заблокировать'}
+                                    </Button>
+                                    <Button
+                                      onClick={() => adminDeleteUser(user.id)}
+                                      variant="destructive"
+                                      disabled={user.id === 'admin'}
+                                    >
+                                      <Icon name="Trash2" size={16} />
+                                      Удалить
+                                    </Button>
+                                    <Button
+                                      onClick={() => adminToggleAdmin(user.id)}
+                                      variant={user.isAdmin ? "destructive" : "default"}
+                                    >
+                                      <Icon name="Shield" size={16} />
+                                      {user.isAdmin ? 'Снять админа' : 'Сделать админом'}
+                                    </Button>
+                                    <Dialog>
+                                      <DialogTrigger asChild>
+                                        <Button
+                                          variant="outline"
+                                          onClick={() => setAdminAction('coins')}
+                                        >
+                                          <Icon name="Coins" size={16} />
+                                          Дать монеты
+                                        </Button>
+                                      </DialogTrigger>
+                                      <DialogContent>
+                                        <DialogHeader>
+                                          <DialogTitle>Выдать HimCoins</DialogTitle>
+                                        </DialogHeader>
+                                        <div className="space-y-4">
+                                          <div>
+                                            <Label>Количество монет</Label>
+                                            <Input
+                                              type="number"
+                                              value={coinsAmount}
+                                              onChange={(e) => setCoinsAmount(e.target.value)}
+                                              placeholder="Введите количество"
+                                            />
+                                          </div>
+                                          <Button
+                                            onClick={() => adminGiveCoins(user.id, parseInt(coinsAmount) || 0)}
+                                            className="w-full"
+                                            disabled={!coinsAmount || parseInt(coinsAmount) <= 0}
+                                          >
+                                            Выдать монеты
+                                          </Button>
+                                        </div>
+                                      </DialogContent>
+                                    </Dialog>
+                                  </div>
+                                  
+                                  <Dialog>
+                                    <DialogTrigger asChild>
+                                      <Button variant="outline" className="w-full">
+                                        <Icon name="MessageSquare" size={16} />
+                                        Просмотреть сообщения
+                                      </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="max-w-2xl">
+                                      <DialogHeader>
+                                        <DialogTitle>Сообщения пользователя: {user.username}</DialogTitle>
+                                      </DialogHeader>
+                                      <div className="max-h-96 overflow-y-auto space-y-2">
+                                        {getUserMessages(user.id).map((message) => (
+                                          <Card key={message.id} className="p-3">
+                                            <div className="flex items-center justify-between">
+                                              <div>
+                                                <p className="text-sm font-medium">{message.text}</p>
+                                                <p className="text-xs text-gray-500">
+                                                  Чат: {message.chatId} | {message.timestamp}
+                                                </p>
+                                              </div>
+                                              <Button size="sm" variant="destructive">
+                                                <Icon name="Trash2" size={12} />
+                                              </Button>
+                                            </div>
+                                          </Card>
+                                        ))}
+                                        {getUserMessages(user.id).length === 0 && (
+                                          <p className="text-center text-gray-500">Сообщений нет</p>
+                                        )}
+                                      </div>
+                                    </DialogContent>
+                                  </Dialog>
+                                </div>
+                              </DialogContent>
+                            </Dialog>
                           </div>
                         </div>
                       </Card>
